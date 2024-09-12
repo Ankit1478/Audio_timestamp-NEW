@@ -1,13 +1,51 @@
-'use client'
+"use client"
 
-import { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Howl, Howler } from 'howler';
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
+import { Slider } from "./components/ui/slider";
+import { Card, CardContent } from "./components/ui/card";
+import { Alert, AlertDescription } from "./components/ui/alert";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
+import { Play, Pause, SkipBack, SkipForward, Upload, Sliders, Volume2, Download } from 'lucide-react';
+import { Button } from './components/ui/button';
+import AudioPlayer from './components/ui/AudioPlayer'
 
-export default function AudioProcessor() {
+export default function AudioProcessingApp() {
   const [mainAudio, setMainAudio] = useState(null);
-  const [shortAudios, setShortAudios] = useState([]);
+  const [mainVolume, setMainVolume] = useState(100);
+  const [backgroundAudios, setBackgroundAudios] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState('');
   const [error, setError] = useState('');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [activeTrack, setActiveTrack] = useState('main');
+  const [isAudioLoaded, setIsAudioLoaded] = useState(false);
+  const howlRef = useRef(null);
+  const animationRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (howlRef.current) {
+        howlRef.current.unload();
+      }
+      cancelAnimationFrame(animationRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isPlaying && isAudioLoaded) {
+      animationRef.current = requestAnimationFrame(updateProgress);
+    } else if (!isPlaying) {
+      cancelAnimationFrame(animationRef.current);
+    }
+
+    return () => cancelAnimationFrame(animationRef.current);
+  }, [isPlaying, isAudioLoaded]);
 
   const isAacFile = (file) => {
     return file.type === 'audio/aac' || file.name.toLowerCase().endsWith('.aac');
@@ -24,15 +62,63 @@ export default function AudioProcessor() {
     }
   };
 
-  const handleShortAudiosChange = (e) => {
+  const handleBackgroundAudioChange = (e) => {
     const files = Array.from(e.target.files);
     const aacFiles = files.filter(isAacFile);
     if (aacFiles.length === files.length) {
-      setShortAudios(aacFiles);
+      setBackgroundAudios(prevAudios => [
+        ...prevAudios,
+        ...aacFiles.map(file => ({ file, timestamp: 0, volume: 1, duration: 0 }))
+      ]);
       setError('');
     } else {
-      setShortAudios([]);
-      setError('Please select only AAC files for the short audios.');
+      setError('Please select only AAC files for the background audios.');
+    }
+  };
+
+  const handleBackgroundAudioUpdate = (index, field, value) => {
+    setBackgroundAudios(prevAudios =>
+      prevAudios.map((audio, i) =>
+        i === index ? { ...audio, [field]: value } : audio
+      )
+    );
+  };
+
+  const handleSeek = (time) => {
+    if (howlRef.current) {
+      howlRef.current.seek(time);
+      setCurrentTime(time);
+    }
+  };
+
+  const handleMainVolumeChange = (value) => {
+    setMainVolume(value);
+    if (howlRef.current) {
+      howlRef.current.volume(value / 100);
+    }
+  };
+
+  const handleBackgroundVolumeChange = (index, value) => {
+    handleBackgroundAudioUpdate(index, 'volume', value / 100);
+  };
+
+  const handlePlayPause = () => {
+    if (howlRef.current) {
+      if (isPlaying) {
+        howlRef.current.pause();
+      } else {
+        howlRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const updateProgress = () => {
+    if (howlRef.current && isPlaying) {
+      const seek = howlRef.current.seek() || 0;
+      setCurrentTime(seek);
+      setProgress((seek / howlRef.current.duration()) * 100);
+      animationRef.current = requestAnimationFrame(updateProgress);
     }
   };
 
@@ -41,10 +127,23 @@ export default function AudioProcessor() {
     setProcessing(true);
     setError('');
     setDownloadUrl('');
+    setProgress(0);
 
     const formData = new FormData();
     formData.append('mainAudio', mainAudio);
-    shortAudios.forEach((audio) => formData.append('shortAudios', audio));
+    
+    const backgroundMetadata = backgroundAudios.map((audio, index) => ({
+      index,
+      timestamp: audio.timestamp,
+      volume: audio.volume,
+      duration: audio.duration
+    }));
+
+    backgroundAudios.forEach((audio) => {
+      formData.append('backgroundAudios', audio.file);
+    });
+
+    formData.append('backgroundAudioMetadata', JSON.stringify(backgroundMetadata));
 
     try {
       const response = await fetch('http://localhost:5001/process', {
@@ -52,65 +151,158 @@ export default function AudioProcessor() {
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Processing failed');
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Processing failed');
+        }
+        const processedAudioUrl = `http://localhost:5001${data.downloadUrl}`;
+        setDownloadUrl(processedAudioUrl);
+        
+        // Create a new Howl instance with the processed audio
+        howlRef.current = new Howl({
+          src: [processedAudioUrl],
+          format: ['aac'],
+          onload: () => {
+            setDuration(howlRef.current.duration());
+            setIsAudioLoaded(true);
+          },
+          onplay: () => {
+            setIsPlaying(true);
+          },
+          onpause: () => {
+            setIsPlaying(false);
+          },
+          onstop: () => {
+            setIsPlaying(false);
+            setProgress(0);
+            setCurrentTime(0);
+          },
+          onend: () => {
+            setIsPlaying(false);
+            setProgress(100);
+          },
+        });
 
-      const data = await response.json();
-      setDownloadUrl(`http://localhost:5001${data.downloadUrl}`);
+      } else {
+        const text = await response.text();
+        console.error('Unexpected response:', text);
+        throw new Error('Server returned an unexpected response. Please try again later.');
+      }
     } catch (err) {
-      setError('Processing failed. Please try again.');
-      console.error(err);
+      console.error('Error details:', err);
+      setError(`Processing failed: ${err.message}`);
     } finally {
       setProcessing(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto mt-10 p-6 bg-white rounded-lg shadow-xl">
-      <h1 className="text-2xl font-bold mb-4">Audio Processor</h1>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="mainAudio" className="block text-sm font-medium text-gray-700">
-            Main Audio (AAC only)
-          </label>
-          <input
-            type="file"
-            id="mainAudio"
-            accept="audio/aac,.aac"
-            onChange={handleMainAudioChange}
-            className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-          />
+    <div className="container mx-auto p-6 space-y-6">
+      <h1 className="text-3xl font-bold mb-6 text-center">Audio Processing App</h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card>
+          <CardContent className="p-6">
+            <h2 className="text-2xl font-bold mb-4">Main Track</h2>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="mainAudio">Upload Main Audio (AAC only)</Label>
+                <div className="flex mt-1">
+                  <Input id="mainAudio" type="file" accept="audio/aac,.aac" onChange={handleMainAudioChange} />
+                  <Button type="button" variant="outline" size="icon" className="ml-2"><Upload className="h-4 w-4" /></Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-6">
+            <h2 className="text-2xl font-bold mb-4">Background Tracks</h2>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="backgroundAudios">Upload Background Audios (AAC only)</Label>
+                <div className="flex mt-1">
+                  <Input id="backgroundAudios" type="file" accept="audio/aac,.aac" multiple onChange={handleBackgroundAudioChange} />
+                  <Button type="button" variant="outline" size="icon" className="ml-2"><Upload className="h-4 w-4" /></Button>
+                </div>
+              </div>
+              <Tabs value={activeTrack} onValueChange={setActiveTrack}>
+                <TabsList>
+                  <TabsTrigger value="main">Main</TabsTrigger>
+                  {backgroundAudios.map((_, index) => (
+                    <TabsTrigger key={index} value={`bg${index}`}>BG {index + 1}</TabsTrigger>
+                  ))}
+                </TabsList>
+                {activeTrack !== 'main' && (
+                  <TabsContent value={activeTrack} className="space-y-4">
+                    <div>
+                      <Label>Timestamp (s)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={backgroundAudios[parseInt(activeTrack.slice(2))].timestamp}
+                        onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'timestamp', parseFloat(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label>Duration (s)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={backgroundAudios[parseInt(activeTrack.slice(2))].duration}
+                        onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'duration', parseFloat(e.target.value))}
+                      />
+                    </div>
+                  </TabsContent>
+                )}
+              </Tabs>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <AudioPlayer
+        isPlaying={isPlaying}
+        onPlayPause={handlePlayPause}
+        progress={progress}
+        mainVolume={mainVolume}
+        onMainVolumeChange={handleMainVolumeChange}
+        backgroundTracks={backgroundAudios}
+        onBackgroundVolumeChange={handleBackgroundVolumeChange}
+        currentTime={currentTime}
+        duration={duration}
+        onSeek={handleSeek}
+      />
+
+      <div className="space-y-4">
+        <div className="flex justify-center space-x-4">
+          <Button onClick={handleSubmit} disabled={!mainAudio || backgroundAudios.length === 0 || processing}>
+            <Sliders className="mr-2 h-4 w-4" />
+            {processing ? 'Processing...' : 'Process Audio'}
+          </Button>
         </div>
-        <div>
-          <label htmlFor="shortAudios" className="block text-sm font-medium text-gray-700">
-            Short Audios (AAC only, up to 10)
-          </label>
-          <input
-            type="file"
-            id="shortAudios"
-            accept="audio/aac,.aac"
-            multiple
-            onChange={handleShortAudiosChange}
-            className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={!mainAudio || shortAudios.length === 0 || processing}
-          className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-        >
-          {processing ? 'Processing...' : 'Process Audio'}
-        </button>
-      </form>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      {downloadUrl && (
-        <a
-          href={downloadUrl}
-          download
-          className="mt-4 inline-block text-sm text-blue-600 hover:text-blue-800"
-        >
-          Download Processed Audio
-        </a>
-      )}
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {downloadUrl && (
+          <Alert>
+            <AlertDescription>
+              Your audio has been processed successfully.{' '}
+              <a href={downloadUrl} download className="font-medium underline">
+                Download Processed Audio
+              </a>
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
     </div>
   );
 }
