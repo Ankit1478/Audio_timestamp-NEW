@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Howl, Howler } from 'howler';
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
-import { Slider } from "./components/ui/slider";
 import { Card, CardContent } from "./components/ui/card";
 import { Alert, AlertDescription } from "./components/ui/alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
@@ -79,7 +78,7 @@ export default function AudioProcessingApp() {
   const handleBackgroundAudioUpdate = (index, field, value) => {
     setBackgroundAudios(prevAudios =>
       prevAudios.map((audio, i) =>
-        i === index ? { ...audio, [field]: value } : audio
+        i === index ? { ...audio, [field]: isNaN(value) ? 0 : value } : audio
       )
     );
   };
@@ -243,8 +242,8 @@ export default function AudioProcessingApp() {
                         type="number"
                         min="0"
                         step="0.1"
-                        value={backgroundAudios[parseInt(activeTrack.slice(2))].timestamp}
-                        onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'timestamp', parseFloat(e.target.value))}
+                        value={backgroundAudios[parseInt(activeTrack.slice(2))]?.timestamp || 0}
+                        onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'timestamp', parseFloat(e.target.value) || 0)}
                       />
                     </div>
                     <div>
@@ -253,8 +252,19 @@ export default function AudioProcessingApp() {
                         type="number"
                         min="0"
                         step="0.1"
-                        value={backgroundAudios[parseInt(activeTrack.slice(2))].duration}
-                        onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'duration', parseFloat(e.target.value))}
+                        value={backgroundAudios[parseInt(activeTrack.slice(2))]?.duration || 0}
+                        onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'duration', parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                    <div>
+                      <Label>Volume</Label>
+                      <Input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={(backgroundAudios[parseInt(activeTrack.slice(2))]?.volume || 1) * 100}
+                        onChange={(e) => handleBackgroundVolumeChange(parseInt(activeTrack.slice(2)), parseInt(e.target.value))}
                       />
                     </div>
                   </TabsContent>
