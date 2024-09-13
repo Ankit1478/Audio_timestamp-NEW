@@ -87,10 +87,27 @@ export default function AudioProcessingApp() {
       prevAudios.map((audio, i) => {
         if (i === index) {
           let newValue = isNaN(value) ? 0 : value;
-          if (field === 'timestamp' || field === 'duration') {
-            newValue = Math.min(newValue, mainAudioDuration);
+          let updatedAudio = { ...audio, [field]: newValue };
+
+          let timestamp = parseFloat(updatedAudio.timestamp) || 0;
+          let duration = parseFloat(updatedAudio.duration) || 0;
+
+          if (field === 'timestamp') {
+            // Ensure timestamp is within 0 and mainAudioDuration
+            timestamp = Math.max(0, Math.min(newValue, mainAudioDuration));
+            updatedAudio.timestamp = timestamp;
+            // Adjust duration if necessary
+            if (timestamp + duration > mainAudioDuration) {
+              duration = mainAudioDuration - timestamp;
+              updatedAudio.duration = duration;
+            }
+          } else if (field === 'duration') {
+            // Ensure duration is within 0 and (mainAudioDuration - timestamp)
+            duration = Math.max(0, Math.min(newValue, mainAudioDuration - timestamp));
+            updatedAudio.duration = duration;
           }
-          return { ...audio, [field]: newValue };
+
+          return updatedAudio;
         }
         return audio;
       })
@@ -146,9 +163,9 @@ export default function AudioProcessingApp() {
     formData.append('mainAudio', mainAudio);
     
     const backgroundMetadata = backgroundAudios.map(audio => ({
-      timestamp: audio.timestamp,
-      volume: audio.volume,
-      duration: audio.duration
+      timestamp: parseFloat(audio.timestamp) || 0,
+      volume: parseFloat(audio.volume) || 1,
+      duration: parseFloat(audio.duration) || (mainAudioDuration - (parseFloat(audio.timestamp) || 0))
     }));
 
     backgroundAudios.forEach((audio, index) => {
@@ -269,7 +286,7 @@ export default function AudioProcessingApp() {
                       <Input
                         type="number"
                         min="0"
-                        max={mainAudioDuration}
+                        max={mainAudioDuration - (backgroundAudios[parseInt(activeTrack.slice(2))]?.timestamp || 0)}
                         step="0.1"
                         value={backgroundAudios[parseInt(activeTrack.slice(2))]?.duration || 0}
                         onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'duration', parseFloat(e.target.value) || 0)}
