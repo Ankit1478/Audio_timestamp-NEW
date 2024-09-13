@@ -24,6 +24,7 @@ export default function AudioProcessingApp() {
   const [duration, setDuration] = useState(0);
   const [activeTrack, setActiveTrack] = useState('main');
   const [isAudioLoaded, setIsAudioLoaded] = useState(false);
+  const [mainAudioDuration, setMainAudioDuration] = useState(0);
   const howlRef = useRef(null);
   const animationRef = useRef(null);
 
@@ -55,8 +56,14 @@ export default function AudioProcessingApp() {
     if (file && isAacFile(file)) {
       setMainAudio(file);
       setError('');
+      // Get the duration of the main audio file
+      const audio = new Audio(URL.createObjectURL(file));
+      audio.onloadedmetadata = () => {
+        setMainAudioDuration(audio.duration);
+      };
     } else {
       setMainAudio(null);
+      setMainAudioDuration(0);
       setError('Please select an AAC file for the main audio.');
     }
   };
@@ -77,9 +84,16 @@ export default function AudioProcessingApp() {
 
   const handleBackgroundAudioUpdate = (index, field, value) => {
     setBackgroundAudios(prevAudios =>
-      prevAudios.map((audio, i) =>
-        i === index ? { ...audio, [field]: isNaN(value) ? 0 : value } : audio
-      )
+      prevAudios.map((audio, i) => {
+        if (i === index) {
+          let newValue = isNaN(value) ? 0 : value;
+          if (field === 'timestamp' || field === 'duration') {
+            newValue = Math.min(newValue, mainAudioDuration);
+          }
+          return { ...audio, [field]: newValue };
+        }
+        return audio;
+      })
     );
   };
 
@@ -131,14 +145,13 @@ export default function AudioProcessingApp() {
     const formData = new FormData();
     formData.append('mainAudio', mainAudio);
     
-    const backgroundMetadata = backgroundAudios.map((audio, index) => ({
-      index,
+    const backgroundMetadata = backgroundAudios.map(audio => ({
       timestamp: audio.timestamp,
       volume: audio.volume,
       duration: audio.duration
     }));
 
-    backgroundAudios.forEach((audio) => {
+    backgroundAudios.forEach((audio, index) => {
       formData.append('backgroundAudios', audio.file);
     });
 
@@ -156,7 +169,7 @@ export default function AudioProcessingApp() {
         if (!response.ok) {
           throw new Error(data.error || 'Processing failed');
         }
-        const processedAudioUrl = `http://localhost:5001${data.downloadUrl}`;
+        const processedAudioUrl = `http://localhost:5001${data.downloadUrl}?mainAudio=${encodeURIComponent(mainAudio.name)}`;
         setDownloadUrl(processedAudioUrl);
         
         // Create a new Howl instance with the processed audio
@@ -169,18 +182,22 @@ export default function AudioProcessingApp() {
           },
           onplay: () => {
             setIsPlaying(true);
+            animationRef.current = requestAnimationFrame(updateProgress);
           },
           onpause: () => {
             setIsPlaying(false);
+            cancelAnimationFrame(animationRef.current);
           },
           onstop: () => {
             setIsPlaying(false);
             setProgress(0);
             setCurrentTime(0);
+            cancelAnimationFrame(animationRef.current);
           },
           onend: () => {
             setIsPlaying(false);
             setProgress(100);
+            cancelAnimationFrame(animationRef.current);
           },
         });
 
@@ -241,6 +258,7 @@ export default function AudioProcessingApp() {
                       <Input
                         type="number"
                         min="0"
+                        max={mainAudioDuration}
                         step="0.1"
                         value={backgroundAudios[parseInt(activeTrack.slice(2))]?.timestamp || 0}
                         onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'timestamp', parseFloat(e.target.value) || 0)}
@@ -251,6 +269,7 @@ export default function AudioProcessingApp() {
                       <Input
                         type="number"
                         min="0"
+                        max={mainAudioDuration}
                         step="0.1"
                         value={backgroundAudios[parseInt(activeTrack.slice(2))]?.duration || 0}
                         onChange={(e) => handleBackgroundAudioUpdate(parseInt(activeTrack.slice(2)), 'duration', parseFloat(e.target.value) || 0)}

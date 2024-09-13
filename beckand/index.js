@@ -102,6 +102,7 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
       
 
       const mainDuration = metadata.format.duration;
+      console.log(mainDuration)
 
       backgroundAudioFiles.forEach((file, index) => {
         const metadata = backgroundAudioMetadata[index] || {};
@@ -148,15 +149,75 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
 // Serve files from the public directory
 app.use(express.static(publicDir));
 
-// Add a route for downloading the processed file
-app.get('/download/:filename', (req, res) => {
-  const filePath = path.join(publicDir, req.params.filename);
-  res.download(filePath, (err) => {
-    if (err) {
-      res.status(404).send('File not found');
-    }
+function getAudioDuration(filePath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(metadata.format);
+      }
+    });
   });
+}
+
+// Update your download route
+app.get('/download/:filename', async (req, res) => {
+  const originalFilePath = path.join(publicDir, req.params.filename);
+  const mainAudioPath = path.join(uploadsDir, req.query.mainAudio);
+
+  if (!fs.existsSync(originalFilePath) || !fs.existsSync(mainAudioPath)) {
+    return res.status(404).send('File not found');
+  }
+
+  try {
+    const [originalMetadata, mainMetadata] = await Promise.all([
+      getAudioDuration(originalFilePath),
+      getAudioDuration(mainAudioPath)
+    ]);
+    console.log(originalMetadata.duration )
+
+    if (originalMetadata.duration <= mainMetadata.duration) {
+      // If original is shorter or equal, send it as is
+      return res.download(originalFilePath);
+    }
+
+    // If original is longer, trim it
+    const trimmedFilePath = path.join(outputDir, `trimmed_${req.params.filename}`);
+    await trimAudio(originalFilePath, trimmedFilePath, mainMetadata.duration);
+    console.log(originalMetadata.duration )
+    res.download(trimmedFilePath, (err) => {
+      if (err) {
+        console.error('Download error:', err);
+        if (!res.headersSent) {
+          res.status(500).send('Error during file download');
+        }
+      }
+      // Delete the trimmed file after download
+      fs.unlink(trimmedFilePath, (unlinkErr) => {
+        if (unlinkErr) console.error('Error deleting trimmed file:', unlinkErr);
+      });
+    });
+  } catch (error) {
+    console.error('Error processing download:', error);
+    if (!res.headersSent) {
+      res.status(500).send('Error processing audio file');
+    }
+  }
 });
+
+// Add this function to trim audio
+function trimAudio(inputPath, outputPath, duration) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .setStartTime(0)
+      .setDuration(duration)
+      .output(outputPath)
+      .on('end', resolve)
+      .on('error', reject)
+      .run();
+  });
+}
 
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
