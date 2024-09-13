@@ -175,7 +175,7 @@ app.get('/download/:filename', async (req, res) => {
       getAudioDuration(originalFilePath),
       getAudioDuration(mainAudioPath)
     ]);
-    console.log(originalMetadata.duration )
+    
 
     if (originalMetadata.duration <= mainMetadata.duration) {
       // If original is shorter or equal, send it as is
@@ -183,9 +183,9 @@ app.get('/download/:filename', async (req, res) => {
     }
 
     // If original is longer, trim it
-    const trimmedFilePath = path.join(outputDir, `trimmed_${req.params.filename}`);
+    const trimmedFilePath = path.join(outputDir, `${req.params.filename}`);
     await trimAudio(originalFilePath, trimmedFilePath, mainMetadata.duration);
-    console.log(originalMetadata.duration )
+    
     res.download(trimmedFilePath, (err) => {
       if (err) {
         console.error('Download error:', err);
@@ -206,7 +206,7 @@ app.get('/download/:filename', async (req, res) => {
   }
 });
 
-// Add this function to trim audio
+//  function to trim audio
 function trimAudio(inputPath, outputPath, duration) {
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
