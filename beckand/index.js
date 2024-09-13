@@ -30,7 +30,7 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir)
   },
   filename: function (req, file, cb) {
-    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname))
+    cb(null,file.originalname)
   }
 });
 
@@ -46,8 +46,7 @@ app.post('/process', upload.fields([
 
   const mainAudioFile = req.files.mainAudio[0];
   const backgroundAudioFiles = req.files.backgroundAudios;
-  
-  console.log('Received backgroundAudioMetadata:', req.body.backgroundAudioMetadata);
+  const mainAudioFileOriginalName = path.parse(req.files.mainAudio[0].originalname).name;
   
   let backgroundAudioMetadata = [];
   if (req.body.backgroundAudioMetadata) {
@@ -61,7 +60,7 @@ app.post('/process', upload.fields([
 
   console.log('Starting audio processing...');
 
-  const outputFileName = `output_${Date.now()}.aac`;
+  const outputFileName = `${mainAudioFileOriginalName}.aac`;
   const finalOutputPath = path.join(publicDir, outputFileName);
 
   processAudio(mainAudioFile.path, backgroundAudioFiles, backgroundAudioMetadata, finalOutputPath)
@@ -100,16 +99,16 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
         return;
       }
 
-      console.log('FFprobe metadata:', metadata);
+      
 
       const mainDuration = metadata.format.duration;
 
       backgroundAudioFiles.forEach((file, index) => {
         const metadata = backgroundAudioMetadata[index] || {};
         const inputIndex = index + 1;
-        const delay = (metadata.timestamp || 0) * 1000; // Convert to milliseconds
-        const volume = metadata.volume || 1;
-        const duration = metadata.duration || mainDuration;
+        const delay = (metadata.timestamp || 0) * 1000; 
+        const volume = Math.min(metadata.volume || 1, 1);
+        const duration = Math.min(metadata.duration || mainDuration, mainDuration - (metadata.timestamp || 0));
         const outputLabel = `delayed${inputIndex}`;
 
         console.log(`Background Audio ${inputIndex}: Added at ${metadata.timestamp}s into the track`);
@@ -120,15 +119,16 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
       });
 
       // Mix all audio streams
-      filterComplex.push(`[${mixAudio.join('][')}]amix=inputs=${mixAudio.length}:duration=longest[out]`);
+      filterComplex.push(`[${mixAudio.join('][')}]amix=inputs=${mixAudio.length}:duration=first,atrim=duration=${mainDuration}[out]`);
 
       command
         .complexFilter(filterComplex, 'out')
         .audioCodec('aac')
         .audioBitrate('128k')
         .toFormat('adts')
+        .duration(mainDuration)
         .on('start', (commandLine) => {
-          console.log('Spawned FFmpeg with command: ' + commandLine);
+          
         })
         .on('progress', (progress) => {
           console.log('Processing: ' + progress.percent + '% done');
