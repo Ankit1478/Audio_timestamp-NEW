@@ -99,9 +99,13 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
         reject(err);
         return;
       }
-      
+
       const mainDuration = metadata.format.duration;
       console.log('Main audio duration:', mainDuration);
+
+      const mainAudioVolume = 1; 
+      filterComplex.push(`[0:a]volume=${mainAudioVolume}[mainAudio]`);
+      mixAudio[0] = 'mainAudio';
 
       backgroundAudioFiles.forEach((file, index) => {
         const bgMetadata = backgroundAudioMetadata[index] || {};
@@ -152,151 +156,6 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
   });
 }
 
-
-// function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetadata, outputPath) {
-//   return new Promise((resolve, reject) => {
-//     let command = ffmpeg();
-
-//     // Add the main audio file
-//     command.input(mainAudioPath);
-
-//     // Add the background audio files
-//     backgroundAudioFiles.forEach(file => {
-//       command = command.input(file.path);
-//     });
-
-//     // Prepare complex filter
-//     const filterComplex = [];
-//     const mixAudio = ['0:a'];
-
-//     // Get the duration of the main audio file
-//     ffmpeg.ffprobe(mainAudioPath, (err, metadata) => {
-//       if (err) {
-//         console.error('FFprobe error:', err);
-//         reject(err);
-//         return;
-//       }
-      
-//       const mainDuration = metadata.format.duration;
-//       console.log('Main audio duration:', mainDuration);
-
-//       backgroundAudioFiles.forEach((file, index) => {
-//         const bgMetadata = backgroundAudioMetadata[index] || {};
-//         const inputIndex = index + 1;
-//         const delayInSeconds = bgMetadata.timestamp || 0;
-//         const delay = delayInSeconds * 1000; // Convert to milliseconds
-//         const volume = Math.min(bgMetadata.volume || 1, 1);
-
-//         // Use the specified duration or default to the remaining time in the main audio
-//         const specifiedDuration = bgMetadata.duration || mainDuration - delayInSeconds;
-//         const duration = Math.min(specifiedDuration, mainDuration - delayInSeconds);
-//         const outputLabel = `delayed${inputIndex}`;
-
-//         console.log(`Background Audio ${inputIndex}: Added at ${delayInSeconds}s, duration: ${duration}s, volume: ${volume}`);
-
-//         // Apply volume adjustment, delay, trim, and fade out to background audio files
-//         filterComplex.push(`[${inputIndex}:a]volume=${volume},asetpts=PTS-STARTPTS,adelay=${delay}|${delay},atrim=end=${duration},afade=t=out:st=${duration-0.5}:d=0.5[${outputLabel}]`);
-//         mixAudio.push(outputLabel);
-//       });
-
-//       // Mix all audio streams and ensure the output duration matches the main audio
-//       filterComplex.push(`[${mixAudio.join('][')}]amix=inputs=${mixAudio.length}:duration=first,asetpts=PTS-STARTPTS[out]`);
-
-//       command
-//         .complexFilter(filterComplex, 'out')
-//         .audioCodec('aac')
-//         .audioBitrate('128k')
-//         .toFormat('adts')
-//         .on('start', (commandLine) => {
-//           console.log('FFmpeg command:', commandLine);
-//         })
-//         .on('progress', (progress) => {
-//           console.log('Processing: ' + progress.percent + '% done');
-//         })
-//         .on('end', resolve)
-//         .on('error', (err, stdout, stderr) => {
-//           console.error('Error:', err);
-//           console.error('FFmpeg stdout:', stdout);
-//           console.error('FFmpeg stderr:', stderr);
-//           reject(err);
-//         })
-//         .save(outputPath);
-//     });
-//   });
-// }
-
-// ... (rest of the code remains the same)
-
-// function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetadata, outputPath) {
-//   return new Promise((resolve, reject) => {
-//     let command = ffmpeg();
-
-//     // Add the main audio file
-//     command.input(mainAudioPath);
-
-//     // Add the background audio files
-//     backgroundAudioFiles.forEach(file => {
-//       command = command.input(file.path);
-//     });
-
-//     // Prepare complex filter
-//     const filterComplex = [];
-//     const mixAudio = ['0:a'];
-
-//     // Get the duration of the main audio file
-//     ffmpeg.ffprobe(mainAudioPath, (err, metadata) => {
-//       if (err) {
-//         console.error('FFprobe error:', err);
-//         reject(err);
-//         return;
-//       }
-      
-//       const mainDuration = metadata.format.duration;
-//       console.log(mainDuration)
-//       backgroundAudioFiles.forEach((file, index) => {
-//         const bgMetadata = backgroundAudioMetadata[index] || {};
-//         const inputIndex = index + 1;
-//         const delayInSeconds = bgMetadata.timestamp || 0;
-//         const delay = delayInSeconds * 1000; // Convert to milliseconds
-//         const volume = Math.min(bgMetadata.volume || 1, 1);
-
-//         // Calculate max duration to ensure background audio doesn't exceed main audio length
-//         const maxDuration = mainDuration - delayInSeconds;
-//         const duration = Math.min(bgMetadata.duration || maxDuration, maxDuration);
-//         const outputLabel = `delayed${inputIndex}`;
-
-//         console.log(`Background Audio ${inputIndex}: Added at ${bgMetadata.timestamp}s into the track`);
-
-//         // Apply volume adjustment, delay, and trim to background audio files
-//         filterComplex.push(`[${inputIndex}:a]volume=${volume},asetpts=PTS-STARTPTS,adelay=${delay}|${delay},atrim=end=${mainDuration}[${outputLabel}]`);
-//         mixAudio.push(outputLabel);
-//       });
-
-//       // Mix all audio streams and ensure the output duration matches the main audio
-//       filterComplex.push(`[${mixAudio.join('][')}]amix=inputs=${mixAudio.length}:duration=first,asetpts=PTS-STARTPTS[out]`);
-
-//       command
-//         .complexFilter(filterComplex, 'out')
-//         .audioCodec('aac')
-//         .audioBitrate('128k')
-//         .toFormat('adts')
-//         .on('start', (commandLine) => {
-//           console.log('FFmpeg command:', commandLine);
-//         })
-//         .on('progress', (progress) => {
-//           console.log('Processing: ' + progress.percent + '% done');
-//         })
-//         .on('end', resolve)
-//         .on('error', (err, stdout, stderr) => {
-//           console.error('Error:', err);
-//           console.error('FFmpeg stdout:', stdout);
-//           console.error('FFmpeg stderr:', stderr);
-//           reject(err);
-//         })
-//         .save(outputPath);
-//     });
-//   });
-// }
 
 
 // Serve files from the public directory
