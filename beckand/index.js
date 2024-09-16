@@ -90,7 +90,7 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
 
     // Prepare complex filter
     const filterComplex = [];
-    const mixAudio = ['0:a'];
+    const backgroundMixInputs = [];
 
     // Get the duration of the main audio file
     ffmpeg.ffprobe(mainAudioPath, (err, metadata) => {
@@ -103,17 +103,12 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
       const mainDuration = metadata.format.duration;
       console.log('Main audio duration:', mainDuration);
 
-      const mainAudioVolume = 1; 
-      filterComplex.push(`[0:a]volume=${mainAudioVolume}[mainAudio]`);
-      mixAudio[0] = 'mainAudio';
-
       backgroundAudioFiles.forEach((file, index) => {
         const bgMetadata = backgroundAudioMetadata[index] || {};
         const inputIndex = index + 1;
         const startTime = parseFloat(bgMetadata.timestamp) || 0;
         const volume = Math.min(bgMetadata.volume || 1, 1);
 
-        // Calculate the end time based on the specified duration or the remaining time in the main audio
         const specifiedDuration = parseFloat(bgMetadata.duration) || (mainDuration - startTime);
         const endTime = Math.min(startTime + specifiedDuration, mainDuration);
         
@@ -121,17 +116,22 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
 
         console.log(`Background Audio ${inputIndex}: Start: ${startTime}s, End: ${endTime}s, Volume: ${volume}`);
 
-        // Trim the background audio to the specified start and end times, adjust volume, and add a short fade out
         filterComplex.push(`[${inputIndex}:a]atrim=${startTime}:${endTime},asetpts=PTS-STARTPTS,volume=${volume},afade=t=out:st=${endTime-startTime-0.5}:d=0.5[${outputLabel}]`);
-        
-        // Delay the trimmed audio to align with the main track
         filterComplex.push(`[${outputLabel}]adelay=${startTime*1000}|${startTime*1000}[delayed${outputLabel}]`);
         
-        mixAudio.push(`delayed${outputLabel}`);
+        backgroundMixInputs.push(`delayed${outputLabel}`);
       });
 
-      // Mix all audio streams
-      filterComplex.push(`${mixAudio.map(a => `[${a}]`).join('')}amix=inputs=${mixAudio.length}:dropout_transition=0,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[out]`);
+      // Mix only the background audio streams
+      if (backgroundMixInputs.length > 0) {
+        filterComplex.push(`${backgroundMixInputs.map(a => `[${a}]`).join('')}amix=inputs=${backgroundMixInputs.length}:dropout_transition=0[bgmix]`);
+        
+        // Overlay the mixed background onto the main audio with volume control for the main audio
+        filterComplex.push(`[0:a]volume=1.0[main];[main][bgmix]amix=inputs=2:normalize=0[out]`);
+      } else {
+        // If no background audio, just use the main audio with volume control
+        filterComplex.push(`[0:a]volume=1.0[out]`);
+      }
 
       command
         .complexFilter(filterComplex, 'out')
@@ -155,6 +155,7 @@ function processAudio(mainAudioPath, backgroundAudioFiles, backgroundAudioMetada
     });
   });
 }
+
 
 
 
